@@ -81,7 +81,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "usage: git <command> [<args>...]\n")
 			os.Exit(1)
 		}
-		shaHash := os.Args[2]
+		if os.Args[2] != "--name-only" {
+			fmt.Fprintf(os.Stderr, "Unknown flag %s\n", os.Args[2])
+			os.Exit(1)
+		}
+		shaHash := os.Args[3]
 		entries, err := readTreeObject(shaHash)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading tree object: %s\n", err)
