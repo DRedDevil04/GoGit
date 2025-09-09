@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"compress/zlib"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -32,8 +35,45 @@ func main() {
 
 		fmt.Println("Initialized git directory")
 
+	case "cat-file":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: git <command> [<args>...]\n")
+			os.Exit(1)
+		}
+		if os.Args[2] != "-p" {
+			fmt.Fprintf(os.Stderr, "Unknown flag %s\n", os.Args[2])
+			os.Exit(1)
+		}
+		shaHash := os.Args[3]
+		content, err := getObjectContent(shaHash)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error retrieving object: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(content)
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
 	}
+}
+
+func getObjectContent(shaHash string) (string, error) {
+	// Gets Content of Specified SHA Object
+	if len(shaHash) != 40 {
+		return "", fmt.Errorf("invalid len of the hash")
+	}
+	dir := fmt.Sprintf(".git/objects/%s", shaHash[:2])
+	file := fmt.Sprintf("%s/%s", dir, shaHash[2:])
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	r, err := zlib.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	io.Copy(&out, r)
+	return out.String(), nil
 }
