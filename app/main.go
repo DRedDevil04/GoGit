@@ -195,12 +195,12 @@ func getTreeEntry(content *string) (TreeEntry, error) {
 	*content = (*content)[nameEnd+1:]
 
 	// Parse SHA
-	if len(*content) < 20 {
+	if len(*content) < 40 {
 		return entry, fmt.Errorf("invalid tree entry: SHA is too short")
 	}
-	entry.SHA = (*content)[:20]
-	if len(*content) > 20 {
-		*content = (*content)[20:]
+	entry.SHA = (*content)[:40]
+	if len(*content) > 40 {
+		*content = (*content)[40:]
 	} else {
 		*content = ""
 	}
