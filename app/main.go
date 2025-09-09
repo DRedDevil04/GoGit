@@ -13,7 +13,7 @@ import (
 type TreeEntry struct {
 	Mode string
 	Type string
-	SHA  string
+	SHA  []byte
 	Name string
 }
 
@@ -165,10 +165,11 @@ func writeObjectToGit(filePath string) (string, error) {
 }
 
 func readTreeObject(shaHash string) ([]string, error) {
-	content, err := getObjectContent(shaHash)
+	contentStr, err := getObjectContent(shaHash)
 	if err != nil {
 		return nil, err
 	}
+	content := []byte(contentStr)
 	var entries []string
 	for len(content) > 0 {
 		entry, err := getTreeEntry(&content)
@@ -180,33 +181,31 @@ func readTreeObject(shaHash string) ([]string, error) {
 	return entries, nil
 }
 
-func getTreeEntry(content *string) (TreeEntry, error) {
+func getTreeEntry(content *[]byte) (TreeEntry, error) {
 	var entry TreeEntry
-	// Parse mode :  <mode> <name>\0<20_byte_sha>
-	modeEnd := bytes.IndexByte([]byte(*content), ' ')
+
+	// Parse mode
+	modeEnd := bytes.IndexByte(*content, ' ')
 	if modeEnd == -1 {
 		return entry, fmt.Errorf("invalid tree entry: no space after mode")
 	}
-	entry.Mode = (*content)[:modeEnd]
+	entry.Mode = string((*content)[:modeEnd])
 	*content = (*content)[modeEnd+1:]
 
 	// Parse name
-	nameEnd := bytes.IndexByte([]byte(*content), 0)
+	nameEnd := bytes.IndexByte(*content, 0)
 	if nameEnd == -1 {
 		return entry, fmt.Errorf("invalid tree entry: no null terminator after name")
 	}
-	entry.Name = (*content)[:nameEnd]
+	entry.Name = string((*content)[:nameEnd])
 	*content = (*content)[nameEnd+1:]
 
-	// Parse SHA
-	if len(*content) < 40 {
+	// Parse SHA (20 raw bytes)
+	if len(*content) < 20 {
 		return entry, fmt.Errorf("invalid tree entry: SHA is too short")
 	}
-	entry.SHA = (*content)[:40]
-	if len(*content) > 40 {
-		*content = (*content)[40:]
-	} else {
-		*content = ""
-	}
+	shaBytes := (*content)[:20]
+	entry.SHA = shaBytes
+	*content = (*content)[20:]
 	return entry, nil
 }
