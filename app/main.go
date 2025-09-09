@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
+	"log"
 	"os"
 )
 
@@ -75,5 +76,10 @@ func getObjectContent(shaHash string) (string, error) {
 	}
 	var out bytes.Buffer
 	io.Copy(&out, r)
-	return out.String(), nil
+	headerEnd := bytes.IndexByte(out.Bytes(), 0)
+	if headerEnd == -1 {
+		log.Fatal("no null terminator found in header")
+	}
+	content := out.String()[headerEnd+11:]
+	return content, nil
 }
