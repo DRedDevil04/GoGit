@@ -10,6 +10,13 @@ import (
 	"os"
 )
 
+type TreeEntry struct {
+	Mode string
+	Type string
+	SHA  string
+	Name string
+}
+
 // Usage: your_program.sh <command> <arg1> <arg2> ...
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -69,6 +76,20 @@ func main() {
 		}
 		fmt.Println(shaHash)
 
+	case "ls-tree":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: git <command> [<args>...]\n")
+			os.Exit(1)
+		}
+		shaHash := os.Args[2]
+		entries, err := readTreeObject(shaHash)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading tree object: %s\n", err)
+			os.Exit(1)
+		}
+		for _, entry := range entries {
+			fmt.Println(entry)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
@@ -137,4 +158,51 @@ func writeObjectToGit(filePath string) (string, error) {
 	}
 
 	return shaHash, nil
+}
+
+func readTreeObject(shaHash string) ([]string, error) {
+	content, err := getObjectContent(shaHash)
+	if err != nil {
+		return nil, err
+	}
+	var entries []string
+	for len(content) > 0 {
+		entry, err := getTreeEntry(&content)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry.Name)
+	}
+	return entries, nil
+}
+
+func getTreeEntry(content *string) (TreeEntry, error) {
+	var entry TreeEntry
+	// Parse mode :  <mode> <name>\0<20_byte_sha>
+	modeEnd := bytes.IndexByte([]byte(*content), ' ')
+	if modeEnd == -1 {
+		return entry, fmt.Errorf("invalid tree entry: no space after mode")
+	}
+	entry.Mode = (*content)[:modeEnd]
+	*content = (*content)[modeEnd+1:]
+
+	// Parse name
+	nameEnd := bytes.IndexByte([]byte(*content), 0)
+	if nameEnd == -1 {
+		return entry, fmt.Errorf("invalid tree entry: no null terminator after name")
+	}
+	entry.Name = (*content)[:nameEnd]
+	*content = (*content)[nameEnd+1:]
+
+	// Parse SHA
+	if len(*content) < 20 {
+		return entry, fmt.Errorf("invalid tree entry: SHA is too short")
+	}
+	entry.SHA = (*content)[:20]
+	if len(*content) > 20 {
+		*content = (*content)[20:]
+	} else {
+		*content = ""
+	}
+	return entry, nil
 }
