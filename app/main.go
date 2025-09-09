@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 )
 
 type TreeEntry struct {
@@ -94,6 +95,18 @@ func main() {
 		for _, entry := range entries {
 			fmt.Println(entry)
 		}
+	case "write-tree":
+		if len(os.Args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: git <command> [<args>...]\n")
+			os.Exit(1)
+		}
+		writeTreeHash, err := writeTreeObject(".")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing tree object: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(writeTreeHash)
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
@@ -208,4 +221,103 @@ func getTreeEntry(content *[]byte) (TreeEntry, error) {
 	entry.SHA = shaBytes
 	*content = (*content)[20:]
 	return entry, nil
+}
+
+func writeTreeObject(currentLocation string) (string, error) {
+	info, err := os.Lstat(currentLocation)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error stating file %s: %s\n", currentLocation, err)
+		return "", err
+	}
+	// Check if it's a directory
+	if info.IsDir() {
+		entries, err := os.ReadDir(currentLocation)
+		if err != nil {
+			return "", fmt.Errorf("error reading directory %s: %w", currentLocation, err)
+		}
+		// Sort entries by file name for deterministic output
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+		var treeEntries [][]byte
+		for _, entry := range entries {
+			var treeEntry TreeEntry
+			entryPath := fmt.Sprintf("%s/%s", currentLocation, entry.Name())
+			sha1, err := writeTreeObject(entryPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing tree object for %s: %s\n", entryPath, err)
+				return "", err
+			}
+			// Check if it's a regular file
+			if entry.Type().IsRegular() {
+				treeEntry.Mode = "100644"
+				treeEntry.Type = "blob"
+				treeEntry.Name = entry.Name()
+				// Convert SHA string to byte slice (correct way)
+				shaBytes := make([]byte, 20)
+				for i := 0; i < 20; i++ {
+					fmt.Sscanf(sha1[2*i:2*i+2], "%02x", &shaBytes[i])
+				}
+				treeEntry.SHA = shaBytes
+			} else {
+				// It's a directory
+				treeEntry.Mode = "40000"
+				treeEntry.Type = "tree"
+				treeEntry.Name = entry.Name()
+				shaBytes := make([]byte, 20)
+				for i := 0; i < 20; i++ {
+					fmt.Sscanf(sha1[2*i:2*i+2], "%02x", &shaBytes[i])
+				}
+				treeEntry.SHA = shaBytes
+			}
+			treeEntryBytes := marshalTreeEntry(treeEntry)
+			treeEntries = append(treeEntries, []byte(treeEntryBytes))
+		}
+		// Now write the tree object
+		treeContent := []byte{}
+		for _, te := range treeEntries {
+			treeContent = append(treeContent, []byte(te)...)
+		}
+		treeHeader := fmt.Sprintf("tree %d\x00", len(treeContent))
+		fullTreeData := append([]byte(treeHeader), treeContent...)
+
+		// Compute SHA-1 of tree
+		h := sha1.New()
+		h.Write(fullTreeData)
+		shaHash := fmt.Sprintf("%x", h.Sum(nil))
+
+		// Compress tree data
+		var compressedData bytes.Buffer
+		w := zlib.NewWriter(&compressedData)
+		if _, err := w.Write(fullTreeData); err != nil {
+			return "", fmt.Errorf("error compressing: %w", err)
+		}
+		w.Close()
+
+		// Create directory for object
+		dir := fmt.Sprintf(".git/objects/%s", shaHash[:2])
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("error creating dir: %w", err)
+		}
+
+		// Write compressed tree
+		filePath := fmt.Sprintf("%s/%s", dir, shaHash[2:])
+		if err := os.WriteFile(filePath, compressedData.Bytes(), 0644); err != nil {
+			return "", fmt.Errorf("error writing object: %w", err)
+		}
+		return shaHash, nil
+	} else {
+		// It's a file, write it as a blob
+		shaHash, err := writeObjectToGit(currentLocation)
+		if err != nil {
+			return "", err
+		}
+		return shaHash, nil
+	}
+}
+func marshalTreeEntry(entry TreeEntry) []byte {
+	b := []byte(entry.Mode + " " + entry.Name)
+	b = append(b, 0)            // null terminator
+	b = append(b, entry.SHA...) // append 20-byte SHA as binary
+	return b
 }
