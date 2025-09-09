@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"log"
@@ -52,6 +53,21 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Print(content)
+	case "hash-object":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: git <command> [<args>...]\n")
+			os.Exit(1)
+		}
+		if os.Args[2] != "-w" {
+			fmt.Fprintf(os.Stderr, "Unknown flag %s\n", os.Args[2])
+			os.Exit(1)
+		}
+		shaHash, err := writeObjectToGit(os.Args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing object: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(shaHash)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
@@ -82,4 +98,43 @@ func getObjectContent(shaHash string) (string, error) {
 	}
 	content := out.String()[headerEnd+1:]
 	return content, nil
+}
+
+func writeObjectToGit(filePath string) (string, error) {
+	// read file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error reading file: %w", err)
+	}
+
+	// create blob header + data
+	blobHeader := fmt.Sprintf("blob %d\x00", len(data))
+	blobData := append([]byte(blobHeader), data...)
+
+	// compute SHA-1 of blob
+	h := sha1.New()
+	h.Write(blobData)
+	shaHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	// compress blobData
+	var compressedData bytes.Buffer
+	w := zlib.NewWriter(&compressedData)
+	if _, err := w.Write(blobData); err != nil {
+		return "", fmt.Errorf("error compressing: %w", err)
+	}
+	w.Close()
+
+	// create directory for object
+	dir := fmt.Sprintf(".git/objects/%s", shaHash[:2])
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("error creating dir: %w", err)
+	}
+
+	// write compressed blob
+	filePath = fmt.Sprintf("%s/%s", dir, shaHash[2:])
+	if err := os.WriteFile(filePath, compressedData.Bytes(), 0644); err != nil {
+		return "", fmt.Errorf("error writing object: %w", err)
+	}
+
+	return shaHash, nil
 }
