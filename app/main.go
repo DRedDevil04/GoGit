@@ -80,6 +80,6 @@ func getObjectContent(shaHash string) (string, error) {
 	if headerEnd == -1 {
 		log.Fatal("no null terminator found in header")
 	}
-	content := out.String()[headerEnd+11:]
+	content := out.String()[headerEnd+1:]
 	return content, nil
 }
