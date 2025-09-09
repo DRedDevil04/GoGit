@@ -241,42 +241,40 @@ func writeTreeObject(currentLocation string) (string, error) {
 		})
 		var treeEntries [][]byte
 		for _, entry := range entries {
+			name := entry.Name()
+			// Skip .git and hidden files/dirs
+			if name == ".git" || len(name) > 0 && name[0] == '.' {
+				continue
+			}
 			var treeEntry TreeEntry
-			entryPath := fmt.Sprintf("%s/%s", currentLocation, entry.Name())
+			entryPath := fmt.Sprintf("%s/%s", currentLocation, name)
 			sha1, err := writeTreeObject(entryPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing tree object for %s: %s\n", entryPath, err)
 				return "", err
 			}
-			// Check if it's a regular file
-			if entry.Type().IsRegular() {
-				treeEntry.Mode = "100644"
-				treeEntry.Type = "blob"
-				treeEntry.Name = entry.Name()
-				// Convert SHA string to byte slice (correct way)
-				shaBytes := make([]byte, 20)
-				for i := 0; i < 20; i++ {
-					fmt.Sscanf(sha1[2*i:2*i+2], "%02x", &shaBytes[i])
-				}
-				treeEntry.SHA = shaBytes
-			} else {
-				// It's a directory
+			if entry.IsDir() {
 				treeEntry.Mode = "40000"
 				treeEntry.Type = "tree"
-				treeEntry.Name = entry.Name()
-				shaBytes := make([]byte, 20)
-				for i := 0; i < 20; i++ {
-					fmt.Sscanf(sha1[2*i:2*i+2], "%02x", &shaBytes[i])
-				}
-				treeEntry.SHA = shaBytes
+			} else {
+				treeEntry.Mode = "100644"
+				treeEntry.Type = "blob"
 			}
-			treeEntryBytes := marshalTreeEntry(treeEntry)
-			treeEntries = append(treeEntries, []byte(treeEntryBytes))
+			treeEntry.Name = name
+			shaBytes := make([]byte, 20)
+			for i := 0; i < 20; i++ {
+				fmt.Sscanf(sha1[2*i:2*i+2], "%02x", &shaBytes[i])
+			}
+			treeEntry.SHA = shaBytes
+			// Tree entry format: [mode] space [name] null [sha bytes]
+			entryBytes := []byte(treeEntry.Mode + " " + treeEntry.Name + string([]byte{0}))
+			entryBytes = append(entryBytes, treeEntry.SHA...)
+			treeEntries = append(treeEntries, entryBytes)
 		}
 		// Now write the tree object
 		treeContent := []byte{}
 		for _, te := range treeEntries {
-			treeContent = append(treeContent, []byte(te)...)
+			treeContent = append(treeContent, te...)
 		}
 		treeHeader := fmt.Sprintf("tree %d\x00", len(treeContent))
 		fullTreeData := append([]byte(treeHeader), treeContent...)
